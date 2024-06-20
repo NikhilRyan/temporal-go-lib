@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"go.uber.org/zap"
 	"log"
 	"temporal-go-lib/internal/config"
@@ -10,14 +11,14 @@ import (
 
 func main() {
 	// Load configuration
-	config, err := config.LoadConfig("config.yaml")
+	loadConfig, err := config.LoadConfig("loadConfig.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
 	// Initialize logger
 	var logger *zap.Logger
-	if config.Logging.Level == "development" {
+	if loadConfig.Logging.Level == "development" {
 		logger, err = temporal.NewDevelopmentLogger()
 	} else {
 		logger, err = temporal.NewLogger()
@@ -25,19 +26,24 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create logger: %v", err)
 	}
-	defer logger.Sync()
+	defer func(logger *zap.Logger) {
+		err := logger.Sync()
+		if err != nil {
+
+		}
+	}(logger)
 
 	// Start monitoring if enabled
-	if config.Monitoring.Enabled {
+	if loadConfig.Monitoring.Enabled {
 		go monitoring.ServeMetrics()
-		logger.Info("Monitoring server started", zap.Int("port", config.Monitoring.Port))
+		logger.Info("Monitoring server started", zap.Int("port", loadConfig.Monitoring.Port))
 	}
 
 	// Create Temporal client
 	client, err := temporal.NewClient(temporal.ClientOptions{
-		HostPort:  config.Temporal.HostPort,
-		Namespace: config.Temporal.Namespace,
-		Identity:  config.Temporal.Identity,
+		HostPort:  loadConfig.Temporal.HostPort,
+		Namespace: loadConfig.Temporal.Namespace,
+		Identity:  loadConfig.Temporal.Identity,
 		Logger:    logger,
 	})
 	if err != nil {
@@ -46,7 +52,7 @@ func main() {
 	defer client.Close()
 
 	// Example of starting a simple workflow
-	_, err = client.ExecuteWorkflow(temporal.StartWorkflowOptions{
+	simpleRun, err := client.ExecuteWorkflow(temporal.StartWorkflowOptions{
 		ID:        "simple-workflow",
 		TaskQueue: "simple-task-queue",
 	}, temporal.SimpleWorkflow)
@@ -54,10 +60,10 @@ func main() {
 		logger.Fatal("Failed to start simple workflow", zap.Error(err))
 	}
 
-	logger.Info("Simple workflow started successfully")
+	logger.Info(fmt.Sprintf("Simple workflow started successfully with Id: %v", simpleRun.GetRunID()))
 
 	// Example of starting a complex workflow
-	_, err = client.ExecuteWorkflow(temporal.StartWorkflowOptions{
+	complexRun, err := client.ExecuteWorkflow(temporal.StartWorkflowOptions{
 		ID:        "complex-workflow",
 		TaskQueue: "complex-task-queue",
 	}, temporal.ComplexWorkflow)
@@ -65,5 +71,5 @@ func main() {
 		logger.Fatal("Failed to start complex workflow", zap.Error(err))
 	}
 
-	logger.Info("Complex workflow started successfully")
+	logger.Info(fmt.Sprintf("Complex workflow started successfully with Id: %v", complexRun.GetRunID()))
 }

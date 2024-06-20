@@ -1,97 +1,86 @@
 package client
 
 import (
-    "go.temporal.io/sdk/client"
-    "go.uber.org/zap"
-    "time"
-    "temporal-go-lib/internal/monitoring"
+	"context"
+	"go.temporal.io/api/enums/v1"
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
+	"go.uber.org/zap"
+	"temporal-go-lib/pkg/temporal"
+	"time"
 )
 
-// ClientOptions holds configuration for the Temporal client
-type ClientOptions struct {
-    HostPort      string
-    Namespace     string
-    RetryPolicy   RetryPolicy
-    MetricsScope  string
-    Identity      string
-    DataConverter client.DataConverter
-    Logger        *zap.Logger
+// Client wraps the Temporal SDK client
+type Client struct {
+	internalClient client.Client
+	logger         *zap.Logger
+}
+
+// Options ClientOptions holds configuration for the Temporal client
+type Options struct {
+	HostPort      string
+	Namespace     string
+	Identity      string
+	DataConverter converter.DataConverter
+	Logger        *zap.Logger
 }
 
 // RetryPolicy defines the retry options for Temporal client
 type RetryPolicy struct {
-    InitialInterval    time.Duration
-    BackoffCoefficient float64
-    MaximumInterval    time.Duration
-    MaximumAttempts    int
-}
-
-// Client wraps the Temporal SDK client
-type Client struct {
-    temporalClient client.Client
-    logger         *zap.Logger
+	InitialInterval    time.Duration
+	BackoffCoefficient float64
+	MaximumInterval    time.Duration
+	MaximumAttempts    int
 }
 
 // NewClient creates a new Temporal client
-func NewClient(options ClientOptions) (*Client, error) {
-    c, err := client.Dial(client.Options{
-        HostPort:      options.HostPort,
-        Namespace:     options.Namespace,
-        MetricsScope:  nil, // Placeholder for actual metrics scope
-        Identity:      options.Identity,
-        DataConverter: options.DataConverter,
-        RetryPolicy: &client.RetryPolicy{
-            InitialInterval:    options.RetryPolicy.InitialInterval,
-            BackoffCoefficient: options.RetryPolicy.BackoffCoefficient,
-            MaximumInterval:    options.RetryPolicy.MaximumInterval,
-            MaximumAttempts:    options.RetryPolicy.MaximumAttempts,
-        },
-    })
-    if err != nil {
-        options.Logger.Error("Failed to create Temporal client", zap.Error(err))
-        monitoring.ClientErrors.Inc()
-        return nil, err
-    }
-    options.Logger.Info("Temporal client created successfully")
-    monitoring.ClientConnections.Inc()
-    return &Client{temporalClient: c, logger: options.Logger}, nil
+func NewClient(options Options) (*Client, error) {
+	internalClient, err := client.NewClient(client.Options{
+		HostPort:      options.HostPort,
+		Namespace:     options.Namespace,
+		Identity:      options.Identity,
+		DataConverter: options.DataConverter,
+	})
+	if err != nil {
+		options.Logger.Error("Failed to create Temporal client", zap.Error(err))
+		return nil, err
+	}
+	options.Logger.Info("Temporal client created successfully")
+	return &Client{internalClient: internalClient, logger: options.Logger}, nil
 }
 
 // Close closes the Temporal client
 func (c *Client) Close() {
-    c.temporalClient.Close()
-    c.logger.Info("Temporal client closed successfully")
-    monitoring.ClientConnections.Dec()
+	c.internalClient.Close()
+	c.logger.Info("Temporal client closed successfully")
 }
 
 // ExecuteWorkflow executes a workflow
-func (c *Client) ExecuteWorkflow(options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
-    c.logger.Info("Executing workflow", zap.String("WorkflowID", options.ID))
-    return c.temporalClient.ExecuteWorkflow(client.BackgroundContext(), options, workflow, args...)
+func (c *Client) ExecuteWorkflow(options temporal.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
+	c.logger.Info("Executing workflow", zap.String("WorkflowID", options.ID))
+	return c.internalClient.ExecuteWorkflow(context.Background(), client.StartWorkflowOptions{
+		ID:        options.ID,
+		TaskQueue: options.TaskQueue,
+	}, workflow, args...)
 }
 
 // SignalWithStartWorkflow sends a signal to a workflow or starts it if it does not exist
-func (c *Client) SignalWithStartWorkflow(options client.StartWorkflowOptions, signalName string, signalArg interface{}, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
-    c.logger.Info("SignalWithStartWorkflow", zap.String("WorkflowID", options.ID), zap.String("SignalName", signalName))
-    return c.temporalClient.SignalWithStartWorkflow(client.BackgroundContext(), options, signalName, signalArg, workflow, args...)
+func (c *Client) SignalWithStartWorkflow(options temporal.StartWorkflowOptions, signalName string, signalArg interface{}, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
+	c.logger.Info("SignalWithStartWorkflow", zap.String("WorkflowID", options.ID), zap.String("SignalName", signalName))
+	return c.internalClient.SignalWithStartWorkflow(context.Background(), options.ID, signalName, signalArg, client.StartWorkflowOptions{
+		ID:        options.ID,
+		TaskQueue: options.TaskQueue,
+	}, workflow, args...)
 }
 
 // QueryWorkflow queries a workflow
-func (c *Client) QueryWorkflow(workflowID, runID, queryType string, args ...interface{}) (client.WorkflowQueryResult, error) {
-    c.logger.Info("Querying workflow", zap.String("WorkflowID", workflowID), zap.String("RunID", runID), zap.String("QueryType", queryType))
-    return c.temporalClient.QueryWorkflow(client.BackgroundContext(), workflowID, runID, queryType, args...)
+func (c *Client) QueryWorkflow(workflowID, runID, queryType string, args ...interface{}) (converter.EncodedValue, error) {
+	c.logger.Info("Querying workflow", zap.String("WorkflowID", workflowID), zap.String("RunID", runID), zap.String("QueryType", queryType))
+	return c.internalClient.QueryWorkflow(context.Background(), workflowID, runID, queryType, args...)
 }
 
 // GetWorkflowHistory gets the history of a workflow
-func (c *Client) GetWorkflowHistory(workflowID, runID string) ([]*client.HistoryEvent, error) {
-    iterator := c.temporalClient.GetWorkflowHistory(client.BackgroundContext(), workflowID, runID, false, client.HistoryEventFilterTypeAllEvent)
-    var history []*client.HistoryEvent
-    for iterator.HasNext() {
-        event, err := iterator.Next()
-        if err != nil {
-            return nil, err
-        }
-        history = append(history, event)
-    }
-    return history, nil
+func (c *Client) GetWorkflowHistory(workflowID, runID string) client.HistoryEventIterator {
+	iterator := c.internalClient.GetWorkflowHistory(context.Background(), workflowID, runID, false, enums.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
+	return iterator
 }

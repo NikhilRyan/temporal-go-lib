@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"github.com/stretchr/testify/assert"
-	"go.temporal.io/sdk/client"
 	"go.uber.org/zap"
 	"temporal-go-lib/pkg/temporal"
 	"testing"
@@ -13,7 +12,12 @@ func TestSimpleWorkflowFunctionality(t *testing.T) {
 	// Initialize logger
 	logger, err := zap.NewDevelopment()
 	assert.NoError(t, err)
-	defer logger.Sync()
+	defer func(logger *zap.Logger) {
+		err := logger.Sync()
+		if err != nil {
+
+		}
+	}(logger)
 
 	// Create Temporal client
 	c, err := temporal.NewClient(temporal.ClientOptions{
@@ -36,7 +40,7 @@ func TestSimpleWorkflowFunctionality(t *testing.T) {
 	defer w.Stop()
 
 	// Execute workflow
-	we, err := c.ExecuteWorkflow(context.Background(), client.StartWorkflowOptions{
+	we, err := c.ExecuteWorkflow(temporal.StartWorkflowOptions{
 		ID:        "simple-workflow",
 		TaskQueue: "simple-task-queue",
 	}, temporal.SimpleWorkflow)

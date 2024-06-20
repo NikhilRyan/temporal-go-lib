@@ -2,7 +2,9 @@ package temporal
 
 import (
 	"context"
+	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
 	"go.uber.org/zap"
 )
 
@@ -14,18 +16,20 @@ type Client struct {
 
 // ClientOptions holds configuration for the Temporal client
 type ClientOptions struct {
-	HostPort  string
-	Namespace string
-	Identity  string
-	Logger    *zap.Logger
+	HostPort      string
+	Namespace     string
+	Identity      string
+	DataConverter converter.DataConverter
+	Logger        *zap.Logger
 }
 
 // NewClient creates a new Temporal client
 func NewClient(options ClientOptions) (*Client, error) {
 	internalClient, err := client.NewClient(client.Options{
-		HostPort:  options.HostPort,
-		Namespace: options.Namespace,
-		Identity:  options.Identity,
+		HostPort:      options.HostPort,
+		Namespace:     options.Namespace,
+		Identity:      options.Identity,
+		DataConverter: options.DataConverter,
 	})
 	if err != nil {
 		options.Logger.Error("Failed to create Temporal client", zap.Error(err))
@@ -53,20 +57,20 @@ func (c *Client) ExecuteWorkflow(options StartWorkflowOptions, workflow interfac
 // SignalWithStartWorkflow sends a signal to a workflow or starts it if it does not exist
 func (c *Client) SignalWithStartWorkflow(options StartWorkflowOptions, signalName string, signalArg interface{}, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
 	c.logger.Info("SignalWithStartWorkflow", zap.String("WorkflowID", options.ID), zap.String("SignalName", signalName))
-	return c.internalClient.SignalWithStartWorkflow(context.Background(), client.StartWorkflowOptions{
+	return c.internalClient.SignalWithStartWorkflow(context.Background(), options.ID, signalName, signalArg, client.StartWorkflowOptions{
 		ID:        options.ID,
 		TaskQueue: options.TaskQueue,
-	}, signalName, signalArg, workflow, args...)
+	}, workflow, args...)
 }
 
 // QueryWorkflow queries a workflow
-func (c *Client) QueryWorkflow(workflowID, runID, queryType string, args ...interface{}) (client.WorkflowRun, error) {
+func (c *Client) QueryWorkflow(workflowID, runID, queryType string, args ...interface{}) (converter.EncodedValue, error) {
 	c.logger.Info("Querying workflow", zap.String("WorkflowID", workflowID), zap.String("RunID", runID), zap.String("QueryType", queryType))
 	return c.internalClient.QueryWorkflow(context.Background(), workflowID, runID, queryType, args...)
 }
 
 // GetWorkflowHistory gets the history of a workflow
 func (c *Client) GetWorkflowHistory(workflowID, runID string) client.HistoryEventIterator {
-	iterator := c.internalClient.GetWorkflowHistory(context.Background(), workflowID, runID, false, client.HistoryEventFilterTypeAllEvent)
+	iterator := c.internalClient.GetWorkflowHistory(context.Background(), workflowID, runID, false, enums.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
 	return iterator
 }

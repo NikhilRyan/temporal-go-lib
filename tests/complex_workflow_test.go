@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"github.com/stretchr/testify/assert"
-	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/worker"
 	"go.uber.org/zap"
 	"temporal-go-lib/pkg/temporal"
 	"testing"
@@ -14,7 +12,12 @@ func TestComplexWorkflowFunctionality(t *testing.T) {
 	// Initialize logger
 	logger, err := zap.NewDevelopment()
 	assert.NoError(t, err)
-	defer logger.Sync()
+	defer func(logger *zap.Logger) {
+		err := logger.Sync()
+		if err != nil {
+
+		}
+	}(logger)
 
 	// Create Temporal client
 	c, err := temporal.NewClient(temporal.ClientOptions{
@@ -38,7 +41,7 @@ func TestComplexWorkflowFunctionality(t *testing.T) {
 	defer w.Stop()
 
 	// Execute workflow
-	we, err := c.ExecuteWorkflow(context.Background(), client.StartWorkflowOptions{
+	we, err := c.ExecuteWorkflow(temporal.StartWorkflowOptions{
 		ID:        "complex-workflow",
 		TaskQueue: "complex-task-queue",
 	}, temporal.ComplexWorkflow)
