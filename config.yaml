@@ -1,0 +1,17 @@
+temporal:
+  hostPort: "localhost:7233"
+  namespace: "default"
+  identity: "your-identity"
+
+retryPolicy:
+  initialInterval: 1
+  backoffCoefficient: 2.0
+  maximumInterval: 60
+  maximumAttempts: 5
+
+logging:
+  level: "production" # or "development"
+
+monitoring:
+  enabled: true
+  port: 9090
